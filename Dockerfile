@@ -2,8 +2,10 @@
 FROM node:20-alpine AS build
 WORKDIR /app
 
-# Argumento para o ambiente de compilação (development, staging, production)
+# Argumentos para o ambiente de compilação (development, staging, production)
 ARG BUILD_MODE=production
+ARG VITE_API_URL=""
+ARG VITE_HUB_URL=""
 
 # Copia manifests e instala dependências
 COPY package.json package-lock.json ./
@@ -11,7 +13,9 @@ RUN npm ci
 
 # Copia código-fonte e compila de acordo com o ambiente
 COPY . .
-RUN if [ "$BUILD_MODE" = "staging" ]; then npm run build:staging; \
+RUN if [ -n "$VITE_API_URL" ]; then export VITE_API_URL="$VITE_API_URL"; fi && \
+    if [ -n "$VITE_HUB_URL" ]; then export VITE_HUB_URL="$VITE_HUB_URL"; fi && \
+    if [ "$BUILD_MODE" = "staging" ]; then npm run build:staging; \
     elif [ "$BUILD_MODE" = "development" ]; then npm run build:dev; \
     else npm run build:prod; fi
 

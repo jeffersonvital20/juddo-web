@@ -1,13 +1,15 @@
 import React, { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../../services/api';
-import { Swords, Trophy, Activity, CheckCircle2, Clock, Tv, Users } from 'lucide-react';
+import { Swords, Trophy, Activity, CheckCircle2, Clock, Tv, Settings } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { LutasManager } from './LutasManager';
-import { UsuariosManager } from './UsuariosManager';
+import { useAuth } from '../../context/AuthContext';
 
 export const AdminDashboard: React.FC = () => {
-  const [abaAtiva, setAbaAtiva] = useState<'tatames' | 'lutas' | 'usuarios'>('tatames');
+  const { user } = useAuth();
+  const isAdmin = user?.role?.toUpperCase() === 'ADMIN';
+  const [abaAtiva, setAbaAtiva] = useState<'tatames' | 'lutas'>('tatames');
 
   const [campeonatoId, setCampeonatoId] = useState<string>(
     localStorage.getItem('judoo_active_campeonato') || '10000000-0000-0000-0000-000000000001'
@@ -175,22 +177,18 @@ export const AdminDashboard: React.FC = () => {
           <span>Fila de Lutas & Agendamento</span>
         </button>
 
-        <button
-          onClick={() => setAbaAtiva('usuarios')}
-          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all ${
-            abaAtiva === 'usuarios'
-              ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30'
-              : 'text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800'
-          }`}
-        >
-          <Users className="w-4 h-4" />
-          <span>Usuários & Perfis</span>
-        </button>
+        {isAdmin && (
+          <Link
+            to="/configuracoes"
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800 transition-all"
+          >
+            <Settings className="w-4 h-4" />
+            <span>Usuários & Categorias</span>
+          </Link>
+        )}
       </div>
 
-      {abaAtiva === 'usuarios' ? (
-        <UsuariosManager />
-      ) : abaAtiva === 'tatames' ? (
+      {abaAtiva === 'tatames' ? (
         /* Grid de Tatames (Visão Panorâmica) */
         <div className="space-y-4">
           <h2 className="text-xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
@@ -259,9 +257,12 @@ export const AdminDashboard: React.FC = () => {
                           <p className="text-xs text-slate-500">
                             {luta.atletaBranco?.siglaAcademia || 'Clube'}
                           </p>
-                          <div className="flex justify-center gap-2 mt-3">
+                          <div className="flex justify-center gap-1.5 mt-3">
                             <span className="text-xs bg-slate-200 dark:bg-slate-800 px-2 py-0.5 rounded font-bold text-slate-700 dark:text-slate-300">
                               W: {luta.placar?.wazaAriBranco || 0}
+                            </span>
+                            <span className="text-xs bg-slate-200 dark:bg-slate-800 px-2 py-0.5 rounded font-bold text-emerald-700 dark:text-emerald-400">
+                              Y: {luta.placar?.yukoBranco || 0}
                             </span>
                             <span className="text-xs bg-slate-200 dark:bg-slate-800 px-2 py-0.5 rounded font-bold text-slate-700 dark:text-slate-300">
                               S: {luta.placar?.shidoBranco || 0}
@@ -280,9 +281,12 @@ export const AdminDashboard: React.FC = () => {
                           <p className="text-xs text-blue-600 dark:text-blue-300">
                             {luta.atletaAzul?.siglaAcademia || 'Clube'}
                           </p>
-                          <div className="flex justify-center gap-2 mt-3">
+                          <div className="flex justify-center gap-1.5 mt-3">
                             <span className="text-xs bg-blue-100 dark:bg-blue-900/50 px-2 py-0.5 rounded font-bold text-blue-700 dark:text-blue-200">
                               W: {luta.placar?.wazaAriAzul || 0}
+                            </span>
+                            <span className="text-xs bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 px-2 py-0.5 rounded font-bold">
+                              Y: {luta.placar?.yukoAzul || 0}
                             </span>
                             <span className="text-xs bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/30 px-2 py-0.5 rounded font-bold">
                               S: {luta.placar?.shidoAzul || 0}

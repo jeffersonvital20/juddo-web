@@ -1,14 +1,16 @@
 import React from 'react';
-import { Routes, Route, Link, useLocation } from 'react-router-dom';
+import { Routes, Route, Link, Navigate, useLocation } from 'react-router-dom';
 import { HomeLandingPage } from './features/home/HomeLandingPage';
 import { AdminDashboard } from './features/admin/AdminDashboard';
 import { CampeonatosModule } from './features/campeonatos/CampeonatosModule';
 import { AtletasModule } from './features/atletas/AtletasModule';
 import { PesagemModule } from './features/secretaria/PesagemModule';
 import { ChavesBracketView } from './features/admin/ChavesBracketView';
+import { ConfiguracoesAdminModule } from './features/admin/ConfiguracoesAdminModule';
 import { TelaoArenaView } from './features/telao/TelaoArenaView';
 import { useTheme } from './context/ThemeContext';
 import { useAuth } from './context/AuthContext';
+import { UsuarioAuth } from './types';
 import {
   LayoutDashboard,
   Scale,
@@ -17,12 +19,23 @@ import {
   Swords,
   Trophy,
   Users,
+  Settings,
   Sun,
   Moon,
   LogOut,
   LogIn,
   Home,
 } from 'lucide-react';
+
+type UserRole = UsuarioAuth['role'];
+
+interface NavItem {
+  to: string;
+  label: string;
+  icon: React.ComponentType<{ className?: string }>;
+  exact?: boolean;
+  allowedRoles: UserRole[];
+}
 
 export const App: React.FC = () => {
   const location = useLocation();
@@ -39,14 +52,22 @@ export const App: React.FC = () => {
     );
   }
 
-  const navLinks = [
-    { to: '/', label: 'Início', icon: Home, exact: true },
-    { to: '/admin', label: 'Painel Geral', icon: LayoutDashboard },
-    { to: '/campeonatos', label: 'Campeonatos', icon: Trophy },
-    { to: '/atletas', label: 'Lutadores', icon: Users },
-    { to: '/pesagem', label: 'Pesagem', icon: Scale },
-    { to: '/chaves', label: 'Chaves', icon: GitBranch },
+  const allNavLinks: NavItem[] = [
+    { to: '/', label: 'Início', icon: Home, exact: true, allowedRoles: ['ADMIN', 'SECRETARIA', 'MESARIO', 'PUBLICO'] },
+    { to: '/admin', label: 'Painel Geral', icon: LayoutDashboard, allowedRoles: ['ADMIN', 'MESARIO'] },
+    { to: '/campeonatos', label: 'Campeonatos', icon: Trophy, allowedRoles: ['ADMIN', 'SECRETARIA'] },
+    { to: '/atletas', label: 'Lutadores', icon: Users, allowedRoles: ['ADMIN', 'SECRETARIA'] },
+    { to: '/pesagem', label: 'Pesagem', icon: Scale, allowedRoles: ['ADMIN', 'SECRETARIA'] },
+    { to: '/chaves', label: 'Chaves', icon: GitBranch, allowedRoles: ['ADMIN', 'SECRETARIA', 'MESARIO', 'PUBLICO'] },
+    { to: '/configuracoes', label: 'Configurações', icon: Settings, allowedRoles: ['ADMIN'] },
   ];
+
+  const userRole = user?.role?.toUpperCase() as UserRole | undefined;
+  const navLinks = userRole
+    ? allNavLinks.filter((link) => link.allowedRoles.includes(userRole))
+    : [];
+
+  const canAccess = (roles: UserRole[]) => Boolean(userRole && roles.includes(userRole));
 
   return (
     <div className="min-h-screen bg-slate-100 dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex flex-col transition-colors duration-200">
@@ -87,39 +108,41 @@ export const App: React.FC = () => {
               </div>
             </Link>
 
-            {/* Links de Navegação Principal */}
-            <nav className="hidden lg:flex items-center gap-1">
-              {navLinks.map((link) => {
-                const Icon = link.icon;
-                const isActive = link.exact
-                  ? location.pathname === link.to
-                  : location.pathname.startsWith(link.to);
+            {/* Links de Navegação Principal (exibidos apenas quando logado) */}
+            {user && (
+              <nav className="hidden lg:flex items-center gap-1">
+                {navLinks.map((link) => {
+                  const Icon = link.icon;
+                  const isActive = link.exact
+                    ? location.pathname === link.to
+                    : location.pathname.startsWith(link.to);
 
-                return (
-                  <Link
-                    key={link.to}
-                    to={link.to}
-                    className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-bold transition-all ${
-                      isActive
-                        ? 'bg-blue-600 text-white shadow-md shadow-blue-600/20'
-                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800/60'
-                    }`}
-                  >
-                    <Icon className="w-4 h-4" />
-                    <span>{link.label}</span>
-                  </Link>
-                );
-              })}
+                  return (
+                    <Link
+                      key={link.to}
+                      to={link.to}
+                      className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-bold transition-all ${
+                        isActive
+                          ? 'bg-blue-600 text-white shadow-md shadow-blue-600/20'
+                          : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800/60'
+                      }`}
+                    >
+                      <Icon className="w-4 h-4" />
+                      <span>{link.label}</span>
+                    </Link>
+                  );
+                })}
 
-              <Link
-                to="/telao"
-                target="_blank"
-                className="flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-bold text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 transition-all border border-emerald-200 dark:border-emerald-800/40 ml-1"
-              >
-                <Tv className="w-4 h-4" />
-                <span>Telão Arena</span>
-              </Link>
-            </nav>
+                <Link
+                  to="/telao"
+                  target="_blank"
+                  className="flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-bold text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 transition-all border border-emerald-200 dark:border-emerald-800/40 ml-1"
+                >
+                  <Tv className="w-4 h-4" />
+                  <span>Telão Arena</span>
+                </Link>
+              </nav>
+            )}
 
             {/* Ações da Direita: Tema Claro/Escuro & Usuário */}
             <div className="flex items-center gap-2 sm:gap-3">
@@ -169,38 +192,40 @@ export const App: React.FC = () => {
             </div>
           </div>
 
-          {/* Submenu Mobile */}
-          <div className="flex lg:hidden overflow-x-auto py-2 gap-1 border-t border-slate-100 dark:border-slate-800 scrollbar-none">
-            {navLinks.map((link) => {
-              const Icon = link.icon;
-              const isActive = link.exact
-                ? location.pathname === link.to
-                : location.pathname.startsWith(link.to);
+          {/* Submenu Mobile (exibido apenas quando logado) */}
+          {user && (
+            <div className="flex lg:hidden overflow-x-auto py-2 gap-1 border-t border-slate-100 dark:border-slate-800 scrollbar-none">
+              {navLinks.map((link) => {
+                const Icon = link.icon;
+                const isActive = link.exact
+                  ? location.pathname === link.to
+                  : location.pathname.startsWith(link.to);
 
-              return (
-                <Link
-                  key={link.to}
-                  to={link.to}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-all ${
-                    isActive
-                      ? 'bg-blue-600 text-white'
-                      : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
-                  }`}
-                >
-                  <Icon className="w-3.5 h-3.5" />
-                  <span>{link.label}</span>
-                </Link>
-              );
-            })}
-            <Link
-              to="/telao"
-              target="_blank"
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/40"
-            >
-              <Tv className="w-3.5 h-3.5" />
-              <span>Telão</span>
-            </Link>
-          </div>
+                return (
+                  <Link
+                    key={link.to}
+                    to={link.to}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-all ${
+                      isActive
+                        ? 'bg-blue-600 text-white'
+                        : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
+                    }`}
+                  >
+                    <Icon className="w-3.5 h-3.5" />
+                    <span>{link.label}</span>
+                  </Link>
+                );
+              })}
+              <Link
+                to="/telao"
+                target="_blank"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/40"
+              >
+                <Tv className="w-3.5 h-3.5" />
+                <span>Telão</span>
+              </Link>
+            </div>
+          )}
         </div>
       </header>
 
@@ -208,11 +233,37 @@ export const App: React.FC = () => {
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <Routes>
           <Route path="/" element={<HomeLandingPage />} />
-          <Route path="/admin" element={<AdminDashboard />} />
-          <Route path="/campeonatos" element={<CampeonatosModule />} />
-          <Route path="/atletas" element={<AtletasModule />} />
-          <Route path="/pesagem" element={<PesagemModule />} />
-          <Route path="/chaves" element={<ChavesBracketView />} />
+          <Route
+            path="/admin"
+            element={canAccess(['ADMIN', 'MESARIO']) ? <AdminDashboard /> : <Navigate to="/" replace />}
+          />
+          <Route
+            path="/campeonatos"
+            element={canAccess(['ADMIN', 'SECRETARIA']) ? <CampeonatosModule /> : <Navigate to="/" replace />}
+          />
+          <Route
+            path="/atletas"
+            element={canAccess(['ADMIN', 'SECRETARIA']) ? <AtletasModule /> : <Navigate to="/" replace />}
+          />
+          <Route
+            path="/pesagem"
+            element={canAccess(['ADMIN', 'SECRETARIA']) ? <PesagemModule /> : <Navigate to="/" replace />}
+          />
+          <Route
+            path="/chaves"
+            element={
+              canAccess(['ADMIN', 'SECRETARIA', 'MESARIO', 'PUBLICO']) ? (
+                <ChavesBracketView />
+              ) : (
+                <Navigate to="/" replace />
+              )
+            }
+          />
+          <Route
+            path="/configuracoes"
+            element={canAccess(['ADMIN']) ? <ConfiguracoesAdminModule /> : <Navigate to="/" replace />}
+          />
+          <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>
 

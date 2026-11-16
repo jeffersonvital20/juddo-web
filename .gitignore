@@ -25,5 +25,10 @@ dist-ssr
 *.sw?
 
 # Environment overrides
+.env
 .env.local
 .env.*.local
+
+# Test Reports
+test-results/
+coverage/

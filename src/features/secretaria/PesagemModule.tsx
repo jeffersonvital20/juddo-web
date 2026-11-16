@@ -1,8 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../services/api';
 import { AtletaCompleto } from '../../types';
-import { Scale, CheckCircle2, Search, UserCheck, AlertCircle } from 'lucide-react';
+import { Scale, CheckCircle2, Search, UserCheck, AlertCircle, Clock } from 'lucide-react';
 
 interface AtletaComPesagem extends AtletaCompleto {
   categoriaNome?: string;
@@ -30,13 +30,28 @@ export const PesagemModule: React.FC = () => {
     queryFn: () => api.getCampeonatos(),
   });
 
+  // Garante que campeonatoId seja atualizado caso o salvo no localStorage não exista na lista retornada pela API
+  useEffect(() => {
+    if (campeonatos.length > 0 && !campeonatos.some((c) => c.id === campeonatoId)) {
+      setCampeonatoId(campeonatos[0].id);
+      localStorage.setItem('judoo_active_campeonato', campeonatos[0].id);
+    }
+  }, [campeonatos, campeonatoId]);
+
   const { data: categorias = [] } = useQuery({
     queryKey: ['categorias', campeonatoId],
     queryFn: () => api.getCategorias(campeonatoId),
     enabled: Boolean(campeonatoId),
   });
 
-  const { data: atletas = [], isLoading } = useQuery({
+  // Busca todos os atletas cadastrados no sistema para poder inscrevê-los e pesá-los no campeonato selecionado
+  const { data: todosAtletas = [], isLoading } = useQuery({
+    queryKey: ['atletas'],
+    queryFn: () => api.getAtletas(),
+  });
+
+  // Busca os atletas que já possuem pesagem/inscrição registrada neste campeonato
+  const { data: atletasInscritosNoCampeonato = [] } = useQuery({
     queryKey: ['atletas', campeonatoId],
     queryFn: () => api.getAtletas(campeonatoId),
     enabled: Boolean(campeonatoId),
@@ -48,23 +63,25 @@ export const PesagemModule: React.FC = () => {
       await api.inscreverAtleta(payload);
     },
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['atletas'] });
       queryClient.invalidateQueries({ queryKey: ['atletas', campeonatoId] });
-      setMensagemSucesso('Pesagem oficial registrada e atleta homologado no campeonato!');
+      setMensagemSucesso('Atleta inscrito no campeonato e pesagem oficial homologada!');
       setMensagemErro(null);
       setTimeout(() => setMensagemSucesso(null), 4000);
     },
     onError: (err: any) => {
-      setMensagemErro(err?.message || 'Falha ao registrar pesagem oficial.');
+      setMensagemErro(err?.message || 'Falha ao registrar inscrição e pesagem oficial.');
       setMensagemSucesso(null);
     },
   });
 
-  const atletasFormatados: AtletaComPesagem[] = atletas.map((a) => {
+  const idsInscritos = new Set(atletasInscritosNoCampeonato.map((a) => a.id));
+
+  const atletasFormatados: AtletaComPesagem[] = todosAtletas.map((a) => {
+    const jaInscrito = idsInscritos.has(a.id);
     return {
       ...a,
-      statusPesagem: 'APROVADO',
-      pesoLimiteKg: 66,
-      categoriaNome: 'Sênior Oficial',
+      statusPesagem: jaInscrito ? 'APROVADO' : 'PENDENTE',
     };
   });
 
@@ -207,9 +224,15 @@ export const PesagemModule: React.FC = () => {
                     </div>
                   </div>
 
-                  <span className="px-2.5 py-1 rounded-full text-xs font-bold border bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 flex items-center gap-1">
-                    <CheckCircle2 className="w-3.5 h-3.5" /> Homologado
-                  </span>
+                  {atleta.statusPesagem === 'APROVADO' ? (
+                    <span className="px-2.5 py-1 rounded-full text-xs font-bold border bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 flex items-center gap-1">
+                      <CheckCircle2 className="w-3.5 h-3.5" /> Inscrito & Pesado
+                    </span>
+                  ) : (
+                    <span className="px-2.5 py-1 rounded-full text-xs font-bold border bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30 flex items-center gap-1">
+                      <Clock className="w-3.5 h-3.5" /> Aguardando Pesagem
+                    </span>
+                  )}
                 </div>
               );
             })}
@@ -221,7 +244,7 @@ export const PesagemModule: React.FC = () => {
           <div className="flex items-center gap-2.5 border-b border-slate-100 dark:border-slate-800 pb-4">
             <UserCheck className="w-5 h-5 text-emerald-500" />
             <h2 className="text-base font-bold text-slate-900 dark:text-white">
-              Balança Oficial & Homologação
+              Inscrição no Evento & Balança Oficial
             </h2>
           </div>
 
@@ -282,7 +305,7 @@ export const PesagemModule: React.FC = () => {
                 className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3.5 rounded-2xl text-sm shadow-lg shadow-emerald-600/30 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
               >
                 <Scale className="w-4 h-4" />
-                <span>{mutationPesagem.isPending ? 'Homologando...' : 'Salvar Pesagem Oficial'}</span>
+                <span>{mutationPesagem.isPending ? 'Homologando...' : 'Inscrever & Salvar Pesagem'}</span>
               </button>
             </form>
           ) : (

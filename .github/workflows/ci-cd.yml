@@ -1,0 +1,306 @@
+name: Judoo Web - CI/CD Pipeline (GCP Compute Engine VPS)
+
+on:
+  push:
+    branches:
+      - main
+      - homolog
+      - dev
+  pull_request:
+    branches:
+      - main
+      - homolog
+      - dev
+
+env:
+  NODE_VERSION: '20.x'
+
+jobs:
+  # ============================================================================
+  # 1. ESTÁGIO DE BUILD (Instalação, TypeScript, Vite Build e Validação Docker)
+  # ============================================================================
+  build:
+    name: 1. Build (React 18 + Vite & Docker)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout do código
+        uses: actions/checkout@v4
+
+      - name: Configurar Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Instalar dependências (npm ci)
+        run: npm ci
+
+      - name: Validar Build para Desenvolvimento (dev)
+        run: npm run build:dev
+
+      - name: Validar Build para Homologação (staging)
+        run: npm run build:staging
+
+      - name: Compilar Build Oficial de Produção (prod)
+        run: npm run build:prod
+
+      - name: Upload do Artefato Compilado (dist)
+        uses: actions/upload-artifact@v4
+        with:
+          name: judoo-web-dist
+          path: ./dist
+          retention-days: 7
+
+      - name: Validar Build da Imagem Docker (Nginx + React)
+        run: docker build --build-arg BUILD_MODE=production -t judoo-web:ci-${{ github.sha }} .
+
+  # ============================================================================
+  # 2. ESTÁGIO DE TESTES UNITÁRIOS (Serviços de API, AuthContext e ThemeContext)
+  # ============================================================================
+  unit-tests:
+    name: 2. Testes Unitários
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout do código
+        uses: actions/checkout@v4
+
+      - name: Configurar Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Instalar dependências (npm ci)
+        run: npm ci
+
+      - name: Executar Testes Unitários (Vitest)
+        run: npx vitest run src/__tests__/unit --reporter=verbose --reporter=junit --outputFile=test-results/unit-tests.xml
+
+      - name: Upload do Relatório de Testes Unitários
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-unit-tests-results
+          path: test-results/
+          retention-days: 7
+
+  # ============================================================================
+  # 3. ESTÁGIO DE TESTES DE INTEGRAÇÃO (RBAC, Campeonatos, Pesagem, Chaves e Admin)
+  # ============================================================================
+  integration-tests:
+    name: 3. Testes de Integração
+    needs: unit-tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout do código
+        uses: actions/checkout@v4
+
+      - name: Configurar Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Instalar dependências (npm ci)
+        run: npm ci
+
+      - name: Executar Testes de Integração (Vitest + Testing Library)
+        run: npx vitest run src/__tests__/integration --reporter=verbose --reporter=junit --outputFile=test-results/integration-tests.xml
+
+      - name: Upload do Relatório de Testes de Integração
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-integration-tests-results
+          path: test-results/
+          retention-days: 7
+
+  # ============================================================================
+  # 4. DEPLOY VPS GCP - DESENVOLVIMENTO (Apenas push na branch 'dev')
+  # ============================================================================
+  deploy-dev:
+    name: 4. Deploy VPS GCP - Desenvolvimento (dev)
+    needs: [build, unit-tests, integration-tests]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-latest
+    environment:
+      name: development
+
+    env:
+      VPS_HOST: ${{ secrets.VPS_HOST }}
+      VPS_USER: ${{ secrets.VPS_USER || 'ubuntu' }}
+      VPS_PORT: ${{ secrets.VPS_PORT || '22' }}
+      BUILD_MODE: development
+      WEB_PORT: ${{ secrets.WEB_PORT_DEV || '3002' }}
+      API_PORT: ${{ secrets.API_PORT_DEV || '8082' }}
+      VITE_API_URL: ${{ secrets.VITE_API_URL_DEV }}
+      VITE_HUB_URL: ${{ secrets.VITE_HUB_URL_DEV }}
+
+    steps:
+      - name: Deploy via SSH na VM do Google Cloud (Dev)
+        if: env.VPS_HOST != ''
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ env.VPS_HOST }}
+          username: ${{ env.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ env.VPS_PORT }}
+          script: |
+            set -e
+            mkdir -p /opt/judoo-web/dev
+            if [ ! -d "/opt/judoo-web/dev/.git" ]; then
+              git clone -b dev https://github.com/${{ github.repository }}.git /opt/judoo-web/dev
+            fi
+            cd /opt/judoo-web/dev
+            git fetch origin dev
+            git reset --hard origin/dev
+
+            API_URL="${{ env.VITE_API_URL }}"
+            HUB_URL="${{ env.VITE_HUB_URL }}"
+            if [ -z "$API_URL" ]; then API_URL="http://${{ env.VPS_HOST }}:${{ env.API_PORT }}/api"; fi
+            if [ -z "$HUB_URL" ]; then HUB_URL="http://${{ env.VPS_HOST }}:${{ env.API_PORT }}/hubs/tatame"; fi
+
+            cat <<EOF > .env
+            COMPOSE_PROJECT_NAME=judoo-web-dev
+            BUILD_MODE=development
+            WEB_PORT=${{ env.WEB_PORT }}
+            VITE_API_URL=$API_URL
+            VITE_HUB_URL=$HUB_URL
+            EOF
+
+            docker compose -p judoo-web-dev up -d --build --remove-orphans
+            docker image prune -f
+
+      - name: Resumo do Deploy (Dev)
+        run: |
+          echo "### 🚀 Deploy VPS GCP (Web Desenvolvimento) Concluído" >> $GITHUB_STEP_SUMMARY
+          echo "- **Branch**: \`dev\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **URL Web Dev**: \`http://${{ env.VPS_HOST || 'SEU_IP_VM' }}:${{ env.WEB_PORT }}\`" >> $GITHUB_STEP_SUMMARY
+
+  # ============================================================================
+  # 5. DEPLOY VPS GCP - HOMOLOGAÇÃO (Apenas push na branch 'homolog')
+  # ============================================================================
+  deploy-homolog:
+    name: 4. Deploy VPS GCP - Homologação (homolog)
+    needs: [build, unit-tests, integration-tests]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/homolog'
+    runs-on: ubuntu-latest
+    environment:
+      name: homologacao
+
+    env:
+      VPS_HOST: ${{ secrets.VPS_HOST }}
+      VPS_USER: ${{ secrets.VPS_USER || 'ubuntu' }}
+      VPS_PORT: ${{ secrets.VPS_PORT || '22' }}
+      BUILD_MODE: staging
+      WEB_PORT: ${{ secrets.WEB_PORT_STAGING || '3001' }}
+      API_PORT: ${{ secrets.API_PORT_STAGING || '8081' }}
+      VITE_API_URL: ${{ secrets.VITE_API_URL_STAGING }}
+      VITE_HUB_URL: ${{ secrets.VITE_HUB_URL_STAGING }}
+
+    steps:
+      - name: Deploy via SSH na VM do Google Cloud (Homologação)
+        if: env.VPS_HOST != ''
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ env.VPS_HOST }}
+          username: ${{ env.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ env.VPS_PORT }}
+          script: |
+            set -e
+            mkdir -p /opt/judoo-web/homolog
+            if [ ! -d "/opt/judoo-web/homolog/.git" ]; then
+              git clone -b homolog https://github.com/${{ github.repository }}.git /opt/judoo-web/homolog
+            fi
+            cd /opt/judoo-web/homolog
+            git fetch origin homolog
+            git reset --hard origin/homolog
+
+            API_URL="${{ env.VITE_API_URL }}"
+            HUB_URL="${{ env.VITE_HUB_URL }}"
+            if [ -z "$API_URL" ]; then API_URL="http://${{ env.VPS_HOST }}:${{ env.API_PORT }}/api"; fi
+            if [ -z "$HUB_URL" ]; then HUB_URL="http://${{ env.VPS_HOST }}:${{ env.API_PORT }}/hubs/tatame"; fi
+
+            cat <<EOF > .env
+            COMPOSE_PROJECT_NAME=judoo-web-homolog
+            BUILD_MODE=staging
+            WEB_PORT=${{ env.WEB_PORT }}
+            VITE_API_URL=$API_URL
+            VITE_HUB_URL=$HUB_URL
+            EOF
+
+            docker compose -p judoo-web-homolog up -d --build --remove-orphans
+            docker image prune -f
+
+      - name: Resumo do Deploy (Homologação)
+        run: |
+          echo "### 🧪 Deploy VPS GCP (Web Homologação) Concluído" >> $GITHUB_STEP_SUMMARY
+          echo "- **Branch**: \`homolog\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **URL Web Homologação**: \`http://${{ env.VPS_HOST || 'SEU_IP_VM' }}:${{ env.WEB_PORT }}\`" >> $GITHUB_STEP_SUMMARY
+
+  # ============================================================================
+  # 6. DEPLOY VPS GCP - PRODUÇÃO (Somente em commit/push na branch 'main')
+  # ============================================================================
+  deploy-prod:
+    name: 4. Deploy VPS GCP - Produção (main)
+    needs: [build, unit-tests, integration-tests]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+
+    env:
+      VPS_HOST: ${{ secrets.VPS_HOST }}
+      VPS_USER: ${{ secrets.VPS_USER || 'ubuntu' }}
+      VPS_PORT: ${{ secrets.VPS_PORT || '22' }}
+      BUILD_MODE: production
+      WEB_PORT: ${{ secrets.WEB_PORT_PROD || '3000' }}
+      API_PORT: ${{ secrets.API_PORT_PROD || '8080' }}
+      VITE_API_URL: ${{ secrets.VITE_API_URL_PROD }}
+      VITE_HUB_URL: ${{ secrets.VITE_HUB_URL_PROD }}
+
+    steps:
+      - name: Deploy via SSH na VM do Google Cloud (Produção)
+        if: env.VPS_HOST != ''
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ env.VPS_HOST }}
+          username: ${{ env.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ env.VPS_PORT }}
+          script: |
+            set -e
+            mkdir -p /opt/judoo-web/prod
+            if [ ! -d "/opt/judoo-web/prod/.git" ]; then
+              git clone -b main https://github.com/${{ github.repository }}.git /opt/judoo-web/prod
+            fi
+            cd /opt/judoo-web/prod
+            git fetch origin main
+            git reset --hard origin/main
+
+            API_URL="${{ env.VITE_API_URL }}"
+            HUB_URL="${{ env.VITE_HUB_URL }}"
+            if [ -z "$API_URL" ]; then API_URL="http://${{ env.VPS_HOST }}:${{ env.API_PORT }}/api"; fi
+            if [ -z "$HUB_URL" ]; then HUB_URL="http://${{ env.VPS_HOST }}:${{ env.API_PORT }}/hubs/tatame"; fi
+
+            cat <<EOF > .env
+            COMPOSE_PROJECT_NAME=judoo-web-prod
+            BUILD_MODE=production
+            WEB_PORT=${{ env.WEB_PORT }}
+            VITE_API_URL=$API_URL
+            VITE_HUB_URL=$HUB_URL
+            EOF
+
+            docker compose -p judoo-web-prod up -d --build --remove-orphans
+            docker image prune -f
+
+      - name: Resumo do Deploy (Produção)
+        run: |
+          echo "### 🏆 Deploy VPS GCP (Web Produção) Concluído" >> $GITHUB_STEP_SUMMARY
+          echo "- **Branch**: \`main\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **URL Web Produção**: \`http://${{ env.VPS_HOST || 'SEU_IP_VM' }}:${{ env.WEB_PORT }}\`" >> $GITHUB_STEP_SUMMARY

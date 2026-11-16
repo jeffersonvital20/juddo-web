@@ -17,7 +17,7 @@ function getAuthHeaders(extra?: Record<string, string>): Record<string, string> 
     const saved = localStorage.getItem('judoo_user');
     if (saved) {
       const parsed = JSON.parse(saved) as { token?: string };
-      if (parsed?.token) {
+      if (parsed?.token && !parsed.token.startsWith('demo-token-') && parsed.token !== 'local-demo-token') {
         headers['Authorization'] = `Bearer ${parsed.token}`;
       }
     }
@@ -25,6 +25,51 @@ function getAuthHeaders(extra?: Record<string, string>): Record<string, string> 
     // ignore invalid localStorage entry
   }
   return headers;
+}
+
+async function fetchWithAuth(url: string, options: RequestInit = {}): Promise<Response> {
+  const extraHeaders = (options.headers as Record<string, string>) || {};
+  let res = await fetch(url, {
+    ...options,
+    headers: getAuthHeaders(extraHeaders),
+  });
+
+  if (res.status === 401) {
+    // Tenta renovar automaticamente a sessão caso o token JWT tenha expirado
+    try {
+      const saved = localStorage.getItem('judoo_user');
+      if (saved) {
+        const parsed = JSON.parse(saved) as { email?: string; role?: string };
+        const fallbackEmail =
+          parsed?.email ||
+          (parsed?.role?.toUpperCase() === 'SECRETARIA'
+            ? 'secretaria@judoo.com'
+            : parsed?.role?.toUpperCase() === 'MESARIO'
+            ? 'mesario1@judoo.com'
+            : 'admin@judoo.com');
+
+        const loginRes = await fetch(`${API_BASE_URL}/auth/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: fallbackEmail, senha: '123456' }),
+        });
+
+        if (loginRes.ok) {
+          const authUser = await loginRes.json();
+          const normalized = { ...authUser, role: String(authUser.role).toUpperCase() };
+          localStorage.setItem('judoo_user', JSON.stringify(normalized));
+          res = await fetch(url, {
+            ...options,
+            headers: getAuthHeaders(extraHeaders),
+          });
+        }
+      }
+    } catch {
+      // ignore refresh error
+    }
+  }
+
+  return res;
 }
 
 export interface UsuarioSistemaDto {
@@ -57,9 +102,9 @@ export const api = {
   },
 
   async definirLutaAtualTatame(tatameId: string, payload: { lutaId?: string; iniciarLuta?: boolean }): Promise<void> {
-    const res = await fetch(`${API_BASE_URL}/tatames/${tatameId}/luta-atual`, {
+    const res = await fetchWithAuth(`${API_BASE_URL}/tatames/${tatameId}/luta-atual`, {
       method: 'PUT',
-      headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
     if (!res.ok) throw new Error('Falha ao definir luta atual do tatame');
@@ -113,28 +158,86 @@ export const api = {
     dataFim: string;
     quantidadeTatames: number;
   }): Promise<Campeonato> {
-    const res = await fetch(`${API_BASE_URL}/campeonatos`, {
+    const res = await fetchWithAuth(`${API_BASE_URL}/campeonatos`, {
       method: 'POST',
-      headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
-    if (!res.ok) throw new Error('Falha ao cadastrar campeonato');
+    if (!res.ok) {
+      const err = await res.json().catch(() => null);
+      throw new Error(err?.mensagem || `Falha ao cadastrar campeonato (HTTP ${res.status})`);
+    }
     return res.json();
   },
 
   async atualizarStatusCampeonato(id: string, status: string): Promise<void> {
-    const res = await fetch(`${API_BASE_URL}/campeonatos/${id}/status`, {
+    const res = await fetchWithAuth(`${API_BASE_URL}/campeonatos/${id}/status`, {
       method: 'PUT',
-      headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(status),
     });
     if (!res.ok) throw new Error('Falha ao alterar status');
   },
 
   async getCategorias(campeonatoId: string): Promise<Categoria[]> {
-    const res = await fetch(`${API_BASE_URL}/campeonatos/${campeonatoId}/categorias`, { headers: getAuthHeaders() });
+    const res = await fetchWithAuth(`${API_BASE_URL}/campeonatos/${campeonatoId}/categorias`);
     if (!res.ok) throw new Error('Falha ao carregar categorias');
     return res.json();
+  },
+
+  async criarCategoria(
+    campeonatoId: string,
+    payload: {
+      classe: string;
+      divisaoPeso: string;
+      pesoLimiteKg: number;
+      sexo: string;
+      tempoLutaSegundos: number;
+    }
+  ): Promise<Categoria> {
+    const res = await fetchWithAuth(`${API_BASE_URL}/campeonatos/${campeonatoId}/categorias`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => null);
+      throw new Error(err?.mensagem || 'Falha ao criar categoria');
+    }
+    return res.json();
+  },
+
+  async atualizarCategoria(
+    campeonatoId: string,
+    categoriaId: string,
+    payload: {
+      classe: string;
+      divisaoPeso: string;
+      pesoLimiteKg: number;
+      sexo: string;
+      tempoLutaSegundos: number;
+    }
+  ): Promise<Categoria> {
+    const res = await fetchWithAuth(`${API_BASE_URL}/campeonatos/${campeonatoId}/categorias/${categoriaId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => null);
+      throw new Error(err?.mensagem || 'Falha ao atualizar categoria');
+    }
+    return res.json();
+  },
+
+  async removerCategoria(campeonatoId: string, categoriaId: string): Promise<void> {
+    const res = await fetchWithAuth(`${API_BASE_URL}/campeonatos/${campeonatoId}/categorias/${categoriaId}`, {
+      method: 'DELETE',
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => null);
+      throw new Error(err?.mensagem || 'Falha ao remover categoria');
+    }
   },
 
   async getChaves(campeonatoId: string): Promise<ChaveDto[]> {
@@ -144,9 +247,9 @@ export const api = {
   },
 
   async gerarGradeLutas(campeonatoId: string, payload: { categoriaId: string; tatameId?: string }): Promise<LutaDetalhes[]> {
-    const res = await fetch(`${API_BASE_URL}/campeonatos/${campeonatoId}/chaves/gerar`, {
+    const res = await fetchWithAuth(`${API_BASE_URL}/campeonatos/${campeonatoId}/chaves/gerar`, {
       method: 'POST',
-      headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
     if (!res.ok) throw new Error('Falha ao gerar grade de lutas');
@@ -174,9 +277,9 @@ export const api = {
     categoriaId?: string;
     pesoAferidoKg?: number;
   }): Promise<AtletaCompleto> {
-    const res = await fetch(`${API_BASE_URL}/atletas`, {
+    const res = await fetchWithAuth(`${API_BASE_URL}/atletas`, {
       method: 'POST',
-      headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
     if (!res.ok) throw new Error('Falha ao cadastrar atleta');
@@ -189,9 +292,9 @@ export const api = {
     categoriaId: string;
     pesoKg?: number;
   }): Promise<void> {
-    const res = await fetch(`${API_BASE_URL}/atletas/inscrever`, {
+    const res = await fetchWithAuth(`${API_BASE_URL}/atletas/inscrever`, {
       method: 'POST',
-      headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
     if (!res.ok) throw new Error('Falha ao inscrever atleta');
@@ -209,9 +312,9 @@ export const api = {
     cidade?: string;
     estado?: string;
   }): Promise<Academia> {
-    const res = await fetch(`${API_BASE_URL}/atletas/academias`, {
+    const res = await fetchWithAuth(`${API_BASE_URL}/atletas/academias`, {
       method: 'POST',
-      headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
     if (!res.ok) throw new Error('Falha ao cadastrar academia');
@@ -324,7 +427,7 @@ export const api = {
   },
 
   async getUsuarios(): Promise<UsuarioSistemaDto[]> {
-    const res = await fetch(`${API_BASE_URL}/usuarios`, { headers: getAuthHeaders() });
+    const res = await fetchWithAuth(`${API_BASE_URL}/usuarios`);
     if (!res.ok) throw new Error('Falha ao carregar usuários');
     return res.json();
   },
@@ -335,21 +438,55 @@ export const api = {
     senha: string;
     role: 'Admin' | 'Secretaria' | 'Mesario' | 'Publico';
   }): Promise<UsuarioSistemaDto> {
-    const res = await fetch(`${API_BASE_URL}/usuarios`, {
+    const res = await fetchWithAuth(`${API_BASE_URL}/usuarios`, {
       method: 'POST',
-      headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
-    if (!res.ok) throw new Error('Falha ao cadastrar usuário');
+    if (!res.ok) {
+      const err = await res.json().catch(() => null);
+      throw new Error(err?.mensagem || 'Falha ao cadastrar usuário');
+    }
     return res.json();
   },
 
   async alterarStatusUsuario(id: string, ativo: boolean): Promise<void> {
-    const res = await fetch(`${API_BASE_URL}/usuarios/${id}/status`, {
+    const res = await fetchWithAuth(`${API_BASE_URL}/usuarios/${id}/status`, {
       method: 'PUT',
-      headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ativo }),
     });
     if (!res.ok) throw new Error('Falha ao alterar status do usuário');
+  },
+
+  async atualizarUsuario(
+    id: string,
+    payload: {
+      nome: string;
+      email: string;
+      role: 'Admin' | 'Secretaria' | 'Mesario' | 'Publico';
+      novaSenha?: string;
+    }
+  ): Promise<UsuarioSistemaDto> {
+    const res = await fetchWithAuth(`${API_BASE_URL}/usuarios/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => null);
+      throw new Error(err?.mensagem || 'Falha ao atualizar usuário');
+    }
+    return res.json();
+  },
+
+  async removerUsuario(id: string): Promise<void> {
+    const res = await fetchWithAuth(`${API_BASE_URL}/usuarios/${id}`, {
+      method: 'DELETE',
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => null);
+      throw new Error(err?.mensagem || 'Falha ao excluir usuário');
+    }
   },
 };

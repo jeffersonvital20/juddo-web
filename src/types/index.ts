@@ -1,9 +1,11 @@
 export type CorJudogi = 'Branco' | 'Azul';
 
 export type TipoPontuacao = 
+  | 'Yuko'
   | 'WazaAri' 
   | 'Ippon' 
   | 'Shido' 
+  | 'CancelarYuko'
   | 'CancelarWazaAri' 
   | 'CancelarShido';
 
@@ -11,6 +13,7 @@ export type TipoVitoria =
   | 'Ippon' 
   | 'WazaAriAwaseteIppon' 
   | 'WazaAri' 
+  | 'Yuko'
   | 'HansokuMake' 
   | 'Decisao' 
   | 'WO' 
@@ -36,9 +39,11 @@ export interface PlacarLuta {
   lutaId: string;
   ipponBranco: number;
   wazaAriBranco: number;
+  yukoBranco?: number;
   shidoBranco: number;
   ipponAzul: number;
   wazaAriAzul: number;
+  yukoAzul?: number;
   shidoAzul: number;
   osaekomiAtivo: boolean;
   osaekomiCor?: CorJudogi | null;
@@ -63,6 +68,7 @@ export interface LutaDetalhes {
   tempoLutaSegundos: number;
   fase: number;
   ordemNaChave: number;
+  vencedorId?: string;
 }
 
 export interface TatameStatus {

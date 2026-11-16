@@ -1,10 +1,15 @@
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../services/api';
+import { useAuth } from '../../context/AuthContext';
 import { Trophy, GitBranch, ShieldCheck, Zap, AlertCircle, CheckCircle2, Play } from 'lucide-react';
 
 export const ChavesBracketView: React.FC = () => {
   const queryClient = useQueryClient();
+  const { user } = useAuth();
+  const role = user?.role?.toUpperCase();
+  const canGenerateBrackets = role === 'ADMIN' || role === 'SECRETARIA';
+  const canStartMatch = role === 'ADMIN' || role === 'MESARIO';
 
   const [campeonatoId, setCampeonatoId] = useState<string>(
     localStorage.getItem('judoo_active_campeonato') || '10000000-0000-0000-0000-000000000001'
@@ -32,6 +37,13 @@ export const ChavesBracketView: React.FC = () => {
     enabled: Boolean(campeonatoId),
   });
 
+  const { data: chaves = [] } = useQuery({
+    queryKey: ['chaves', campeonatoId],
+    queryFn: () => api.getChaves(campeonatoId),
+    enabled: Boolean(campeonatoId),
+    refetchInterval: 4000,
+  });
+
   const { data: todasLutas = [], isLoading: carregandoLutas } = useQuery({
     queryKey: ['todas-lutas', campeonatoId],
     queryFn: () => api.getTodasLutas(campeonatoId),
@@ -46,11 +58,13 @@ export const ChavesBracketView: React.FC = () => {
 
   const categoriaIdEfetivo = categoriaAtiva?.id || categoriaSelecionadaId;
 
-  // Filtrar lutas desta categoria
-  // No backend, cada luta tem ChaveId vinculado à Categoria
-  const lutasDaCategoria = todasLutas;
+  // Filtra lutas da chave correspondente à categoria selecionada (ou exibe todas se ainda não houver filtro específico)
+  const chaveDaCategoria = chaves.find((ch) => ch.categoriaId === categoriaIdEfetivo);
+  const lutasDaCategoria = chaveDaCategoria
+    ? todasLutas.filter((l) => l.chaveId === chaveDaCategoria.id)
+    : todasLutas;
 
-  // Agrupamento por Fase (1 = Final, 2 = Semifinais, 3 = Quartas de Final, etc.)
+  // Agrupamento por Fase em ordem da Copa (Ex: Fase 4 Oitavas -> Fase 3 Quartas -> Fase 2 Semifinal -> Fase 1 Final)
   const fases = Array.from(new Set(lutasDaCategoria.map((l) => l.fase || 1))).sort((a, b) => b - a);
 
   // Mutação para Gerar Grade Automática
@@ -198,14 +212,16 @@ export const ChavesBracketView: React.FC = () => {
           })}
         </div>
 
-        <button
-          onClick={() => mutationGerarGrade.mutate()}
-          disabled={mutationGerarGrade.isPending || !categoriaIdEfetivo}
-          className="flex items-center justify-center gap-2 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white font-bold px-5 py-2.5 rounded-xl text-xs shadow-md shadow-amber-500/20 transition-all shrink-0 disabled:opacity-50"
-        >
-          <Zap className="w-4 h-4 fill-white" />
-          <span>{mutationGerarGrade.isPending ? 'Montando Chaves...' : 'Gerar Grade Automática'}</span>
-        </button>
+        {canGenerateBrackets && (
+          <button
+            onClick={() => mutationGerarGrade.mutate()}
+            disabled={mutationGerarGrade.isPending || !categoriaIdEfetivo}
+            className="flex items-center justify-center gap-2 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white font-bold px-5 py-2.5 rounded-xl text-xs shadow-md shadow-amber-500/20 transition-all shrink-0 disabled:opacity-50"
+          >
+            <Zap className="w-4 h-4 fill-white" />
+            <span>{mutationGerarGrade.isPending ? 'Montando Chaves...' : 'Gerar Grade Automática'}</span>
+          </button>
+        )}
       </div>
 
       {/* Árvore de Confrontos (Bracket Visualizer) */}
@@ -223,15 +239,19 @@ export const ChavesBracketView: React.FC = () => {
               Nenhuma chave gerada para esta categoria
             </h3>
             <p className="text-slate-500 text-xs max-w-md mx-auto">
-              Cadastre os lutadores da categoria na pesagem e clique no botão acima "Gerar Grade Automática" para montar o chaveamento oficial da FIJ.
+              {canGenerateBrackets
+                ? 'Cadastre os lutadores da categoria na pesagem e clique no botão acima "Gerar Grade Automática" para montar o chaveamento oficial da FIJ.'
+                : 'Aguarde a Secretaria ou Coordenação gerar o chaveamento oficial desta categoria.'}
             </p>
-            <button
-              onClick={() => mutationGerarGrade.mutate()}
-              disabled={mutationGerarGrade.isPending}
-              className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold px-4 py-2 rounded-xl shadow"
-            >
-              <Zap className="w-4 h-4" /> Gerar Chaves Agora
-            </button>
+            {canGenerateBrackets && (
+              <button
+                onClick={() => mutationGerarGrade.mutate()}
+                disabled={mutationGerarGrade.isPending}
+                className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold px-4 py-2 rounded-xl shadow"
+              >
+                <Zap className="w-4 h-4" /> Gerar Chaves Agora
+              </button>
+            )}
           </div>
         )}
 
@@ -260,95 +280,123 @@ export const ChavesBracketView: React.FC = () => {
                   </h3>
 
                   <div className="space-y-3">
-                    {lutasFase.map((luta) => {
-                      const emAndamento = luta.status === 'EmAndamento';
-                      const finalizada = luta.status === 'Finalizada';
-                      const tatameAtual = tatames.find((t) => t.id === luta.tatameId);
+                    {lutasFase
+                      .slice()
+                      .sort((a, b) => (a.ordemNaChave || 1) - (b.ordemNaChave || 1))
+                      .map((luta) => {
+                        const emAndamento = luta.status === 'EmAndamento';
+                        const finalizada = luta.status === 'Finalizada';
+                        const tatameAtual = tatames.find((t) => t.id === luta.tatameId);
+                        const brancoVenceu = Boolean(finalizada && luta.vencedorId && luta.vencedorId === luta.atletaBranco?.id);
+                        const azulVenceu = Boolean(finalizada && luta.vencedorId && luta.vencedorId === luta.atletaAzul?.id);
+                        const prontaParaIniciar = Boolean(luta.atletaBranco?.id && luta.atletaAzul?.id);
 
-                      return (
-                        <div
-                          key={luta.id}
-                          className={`rounded-2xl border transition-all overflow-hidden shadow-sm ${
-                            isFinal
-                              ? 'border-amber-500/60 bg-amber-500/5'
-                              : emAndamento
-                              ? 'border-emerald-500 bg-emerald-500/5 ring-2 ring-emerald-500/20'
-                              : 'border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/90'
-                          }`}
-                        >
-                          {/* Cabeçalho da Luta */}
-                          <div className="bg-slate-100 dark:bg-slate-950 px-3.5 py-1.5 text-[11px] font-semibold text-slate-600 dark:text-slate-400 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
-                            <span className="flex items-center gap-1">
-                              {tatameAtual ? `Tatame ${tatameAtual.numero}` : 'Tatame a Definir'}
-                            </span>
-                            <span
-                              className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                                emAndamento
-                                  ? 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 animate-pulse'
-                                  : finalizada
-                                  ? 'bg-slate-200 dark:bg-slate-800 text-slate-500'
-                                  : 'bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400'
+                        return (
+                          <div
+                            key={luta.id}
+                            className={`rounded-2xl border transition-all overflow-hidden shadow-sm ${
+                              isFinal
+                                ? 'border-amber-500/60 bg-amber-500/5'
+                                : emAndamento
+                                ? 'border-emerald-500 bg-emerald-500/5 ring-2 ring-emerald-500/20'
+                                : 'border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/90'
+                            }`}
+                          >
+                            {/* Cabeçalho da Luta */}
+                            <div className="bg-slate-100 dark:bg-slate-950 px-3.5 py-1.5 text-[11px] font-semibold text-slate-600 dark:text-slate-400 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
+                              <span className="flex items-center gap-1">
+                                <strong>Luta #{luta.ordemNaChave}</strong> • {tatameAtual ? `Tatame ${tatameAtual.numero}` : 'Tatame a Definir'}
+                              </span>
+                              <span
+                                className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                  emAndamento
+                                    ? 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 animate-pulse'
+                                    : finalizada
+                                    ? 'bg-slate-200 dark:bg-slate-800 text-slate-500'
+                                    : 'bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400'
+                                }`}
+                              >
+                                {luta.status}
+                              </span>
+                            </div>
+
+                            {/* Atleta Branco (Shiro) */}
+                            <div
+                              className={`p-3 flex items-center justify-between border-b border-slate-100 dark:border-slate-800/60 ${
+                                brancoVenceu ? 'bg-emerald-500/10' : ''
                               }`}
                             >
-                              {luta.status}
-                            </span>
-                          </div>
-
-                          {/* Atleta Branco (Shiro) */}
-                          <div className="p-3 flex items-center justify-between border-b border-slate-100 dark:border-slate-800/60">
-                            <div className="flex items-center gap-2">
-                              <span className="w-3.5 h-3.5 rounded-full bg-white border border-slate-400 shadow-sm shrink-0"></span>
-                              <div className="truncate">
-                                <div className="text-xs font-bold text-slate-900 dark:text-white truncate">
-                                  {luta.atletaBranco?.nome || 'Atleta Shiro'}
-                                </div>
-                                <div className="text-[10px] text-slate-500">
-                                  {luta.atletaBranco?.siglaAcademia || 'Clube'}
-                                </div>
-                              </div>
-                            </div>
-                            <span className="font-mono text-xs font-black text-slate-900 dark:text-white bg-slate-200 dark:bg-slate-800 px-2 py-0.5 rounded">
-                              {luta.placar ? `I:${luta.placar.ipponBranco} W:${luta.placar.wazaAriBranco} S:${luta.placar.shidoBranco}` : '-'}
-                            </span>
-                          </div>
-
-                          {/* Atleta Azul (Ao) */}
-                          <div className="p-3 flex items-center justify-between">
-                            <div className="flex items-center gap-2">
-                              <span className="w-3.5 h-3.5 rounded-full bg-blue-600 shadow-sm shrink-0"></span>
-                              <div className="truncate">
-                                <div className="text-xs font-bold text-slate-900 dark:text-white truncate">
-                                  {luta.atletaAzul?.nome || 'Atleta Ao'}
-                                </div>
-                                <div className="text-[10px] text-blue-600 dark:text-blue-400 font-semibold">
-                                  {luta.atletaAzul?.siglaAcademia || 'Clube'}
+                              <div className="flex items-center gap-2">
+                                <span className="w-3.5 h-3.5 rounded-full bg-white border border-slate-400 shadow-sm shrink-0"></span>
+                                <div className="truncate">
+                                  <div className="text-xs font-bold text-slate-900 dark:text-white truncate flex items-center gap-1.5">
+                                    <span>{luta.atletaBranco?.nome || 'Aguardando Vencedor...'}</span>
+                                    {brancoVenceu && (
+                                      <span className="text-[10px] bg-emerald-500 text-white px-1.5 py-0.2 rounded font-black uppercase">
+                                        {isFinal ? '🏆 Campeão' : 'Classificado'}
+                                      </span>
+                                    )}
+                                  </div>
+                                  <div className="text-[10px] text-slate-500">
+                                    {luta.atletaBranco?.siglaAcademia || (luta.atletaBranco ? 'Clube' : 'Fase anterior')}
+                                  </div>
                                 </div>
                               </div>
+                              <span className="font-mono text-xs font-black text-slate-900 dark:text-white bg-slate-200 dark:bg-slate-800 px-2 py-0.5 rounded">
+                                {luta.placar
+                                  ? `I:${luta.placar.ipponBranco} W:${luta.placar.wazaAriBranco} Y:${luta.placar.yukoBranco ?? 0} S:${luta.placar.shidoBranco}`
+                                  : '-'}
+                              </span>
                             </div>
-                            <span className="font-mono text-xs font-black text-blue-600 dark:text-blue-300 bg-blue-100 dark:bg-blue-950 px-2 py-0.5 rounded">
-                              {luta.placar ? `I:${luta.placar.ipponAzul} W:${luta.placar.wazaAriAzul} S:${luta.placar.shidoAzul}` : '-'}
-                            </span>
-                          </div>
 
-                          {/* Botão de Enviar para Tatame se não finalizada */}
-                          {!finalizada && tatames.length > 0 && (
-                            <div className="p-2 bg-slate-100/50 dark:bg-slate-950/50 border-t border-slate-200 dark:border-slate-800 flex justify-end">
-                              <button
-                                onClick={() =>
-                                  mutationDefinirLutaAtual.mutate({
-                                    tatameId: luta.tatameId || tatames[0].id,
-                                    lutaId: luta.id,
-                                  })
-                                }
-                                className="text-[11px] font-bold text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1"
-                              >
-                                <Play className="w-3 h-3" /> Iniciar na Mesa
-                              </button>
+                            {/* Atleta Azul (Ao) */}
+                            <div
+                              className={`p-3 flex items-center justify-between ${
+                                azulVenceu ? 'bg-emerald-500/10' : ''
+                              }`}
+                            >
+                              <div className="flex items-center gap-2">
+                                <span className="w-3.5 h-3.5 rounded-full bg-blue-600 shadow-sm shrink-0"></span>
+                                <div className="truncate">
+                                  <div className="text-xs font-bold text-slate-900 dark:text-white truncate flex items-center gap-1.5">
+                                    <span>{luta.atletaAzul?.nome || 'Aguardando Vencedor...'}</span>
+                                    {azulVenceu && (
+                                      <span className="text-[10px] bg-emerald-500 text-white px-1.5 py-0.2 rounded font-black uppercase">
+                                        {isFinal ? '🏆 Campeão' : 'Classificado'}
+                                      </span>
+                                    )}
+                                  </div>
+                                  <div className="text-[10px] text-blue-600 dark:text-blue-400 font-semibold">
+                                    {luta.atletaAzul?.siglaAcademia || (luta.atletaAzul ? 'Clube' : 'Fase anterior')}
+                                  </div>
+                                </div>
+                              </div>
+                              <span className="font-mono text-xs font-black text-blue-600 dark:text-blue-300 bg-blue-100 dark:bg-blue-950 px-2 py-0.5 rounded">
+                                {luta.placar
+                                  ? `I:${luta.placar.ipponAzul} W:${luta.placar.wazaAriAzul} Y:${luta.placar.yukoAzul ?? 0} S:${luta.placar.shidoAzul}`
+                                  : '-'}
+                              </span>
                             </div>
-                          )}
-                        </div>
-                      );
-                    })}
+
+                            {/* Botão de Enviar para Tatame se não finalizada e ambos os atletas já definidos */}
+                            {canStartMatch && !finalizada && prontaParaIniciar && tatames.length > 0 && (
+                              <div className="p-2 bg-slate-100/50 dark:bg-slate-950/50 border-t border-slate-200 dark:border-slate-800 flex justify-end">
+                                <button
+                                  onClick={() =>
+                                    mutationDefinirLutaAtual.mutate({
+                                      tatameId: luta.tatameId || tatames[0].id,
+                                      lutaId: luta.id,
+                                    })
+                                  }
+                                  className="text-[11px] font-bold text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1"
+                                >
+                                  <Play className="w-3 h-3" /> Iniciar na Mesa
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
                   </div>
                 </div>
               );

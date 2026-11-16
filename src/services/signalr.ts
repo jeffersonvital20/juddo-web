@@ -51,14 +51,30 @@ export class SignalRService {
   }
 
   public onPlacarAtualizado(callback: (placar: PlacarLuta | { tatameId: string; placar: PlacarLuta }) => void) {
+    this.connection?.off('PlacarAtualizado');
     this.connection?.on('PlacarAtualizado', callback);
   }
 
-  public onCronometroAtualizado(callback: (data: { tatameId: string; tempoSegundos: number; rodando: boolean; goldenScore: boolean }) => void) {
+  public onCronometroAtualizado(
+    callback: (data: {
+      tatameId: string;
+      tempoSegundos: number;
+      rodando: boolean;
+      goldenScore: boolean;
+      sonoMama?: boolean;
+    }) => void
+  ) {
+    this.connection?.off('CronometroAtualizado');
     this.connection?.on('CronometroAtualizado', callback);
   }
 
+  public onLutaIniciada(callback: (luta: any) => void) {
+    this.connection?.off('LutaIniciada');
+    this.connection?.on('LutaIniciada', callback);
+  }
+
   public onLutaFinalizada(callback: (data: { tatameId: string; lutaId: string; vencedor?: string; tipoVitoria: string }) => void) {
+    this.connection?.off('LutaFinalizada');
     this.connection?.on('LutaFinalizada', callback);
   }
 

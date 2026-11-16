@@ -1,13 +1,12 @@
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../services/api';
-import { AtletaCompleto, Academia, Categoria } from '../../types';
+import { AtletaCompleto, Academia } from '../../types';
 import {
   Users,
   UserPlus,
   Search,
   Building2,
-  Trophy,
   CheckCircle2,
 } from 'lucide-react';
 
@@ -25,14 +24,6 @@ const ACADEMIAS_MOCK: Academia[] = [
   { id: '20000000-0000-0000-0000-000000000004', nome: 'Instituto Reação', sigla: 'IRC', cidade: 'Rio de Janeiro', estado: 'RJ' },
 ];
 
-const CATEGORIAS_MOCK: Categoria[] = [
-  { id: '30000000-0000-0000-0000-000000000001', campeonatoId: '1', classe: 'Sênior', divisaoPeso: '-60kg Ligeiro', pesoLimiteKg: 60, sexo: 'MASCULINO', tempoLutaSegundos: 240 },
-  { id: '30000000-0000-0000-0000-000000000002', campeonatoId: '1', classe: 'Sênior', divisaoPeso: '-66kg Meio-Leve', pesoLimiteKg: 66, sexo: 'MASCULINO', tempoLutaSegundos: 240 },
-  { id: '30000000-0000-0000-0000-000000000003', campeonatoId: '1', classe: 'Sênior', divisaoPeso: '-73kg Leve', pesoLimiteKg: 73, sexo: 'MASCULINO', tempoLutaSegundos: 240 },
-  { id: '30000000-0000-0000-0000-000000000004', campeonatoId: '1', classe: 'Sênior', divisaoPeso: '-81kg Meio-Médio', pesoLimiteKg: 81, sexo: 'MASCULINO', tempoLutaSegundos: 240 },
-  { id: '30000000-0000-0000-0000-000000000005', campeonatoId: '1', classe: 'Sênior', divisaoPeso: '-52kg Meio-Leve', pesoLimiteKg: 52, sexo: 'FEMININO', tempoLutaSegundos: 240 },
-];
-
 export const AtletasModule: React.FC = () => {
   const queryClient = useQueryClient();
   const [busca, setBusca] = useState('');
@@ -45,11 +36,6 @@ export const AtletasModule: React.FC = () => {
   const [academiaId, setAcademiaId] = useState('');
   const [dataNascimento, setDataNascimento] = useState('2000-01-01');
   const [sexo, setSexo] = useState('MASCULINO');
-  const [campeonatoId, setCampeonatoId] = useState(
-    localStorage.getItem('judoo_active_campeonato') || '10000000-0000-0000-0000-000000000001'
-  );
-  const [categoriaId, setCategoriaId] = useState('');
-  const [pesoEstimado, setPesoEstimado] = useState('');
 
   // Form Novo Clube
   const [novoClubeNome, setNovoClubeNome] = useState('');
@@ -80,17 +66,6 @@ export const AtletasModule: React.FC = () => {
     },
   });
 
-  const { data: campeonatos = [] } = useQuery({
-    queryKey: ['campeonatos'],
-    queryFn: async () => {
-      try {
-        return await api.getCampeonatos();
-      } catch {
-        return [];
-      }
-    },
-  });
-
   const mutationCadastrar = useMutation({
     mutationFn: (payload: any) => api.cadastrarAtleta(payload),
     onSuccess: () => {
@@ -98,7 +73,6 @@ export const AtletasModule: React.FC = () => {
       setModalAberto(false);
       setNome('');
       setRegistro('');
-      setPesoEstimado('');
     },
     onError: () => {
       // Fallback local
@@ -152,9 +126,6 @@ export const AtletasModule: React.FC = () => {
       registroFederacao: registro,
       dataNascimento,
       sexo,
-      campeonatoId: campeonatoId || undefined,
-      categoriaId: categoriaId || undefined,
-      pesoAferidoKg: pesoEstimado ? parseFloat(pesoEstimado) : undefined,
     });
   };
 
@@ -182,14 +153,14 @@ export const AtletasModule: React.FC = () => {
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200 dark:border-slate-800 pb-6">
         <div>
           <span className="text-xs font-bold uppercase tracking-wider text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/60 px-3 py-1 rounded-full border border-blue-200 dark:border-blue-800/40">
-            Módulo de Atletas & Inscrições
+            Módulo de Atletas & Agremiações
           </span>
           <h1 className="text-3xl font-black text-slate-900 dark:text-white mt-2 flex items-center gap-3">
             <Users className="w-8 h-8 text-blue-600 dark:text-blue-400" />
-            Cadastro de Lutadores & Inscrições
+            Cadastro de Lutadores
           </h1>
           <p className="text-slate-500 dark:text-slate-400 text-sm mt-1">
-            Cadastre os atletas de Judô, vincule ao clube de origem e inscreva-os nas categorias de peso oficiais do campeonato.
+            Cadastre os atletas de Judô e vincule-os ao clube de origem. A inscrição no campeonato e categoria é realizada no módulo de Pesagem.
           </p>
         </div>
 
@@ -294,7 +265,7 @@ export const AtletasModule: React.FC = () => {
             <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-4">
               <h3 className="text-xl font-black text-slate-900 dark:text-white flex items-center gap-2">
                 <UserPlus className="w-6 h-6 text-blue-600" />
-                Cadastrar e Inscrever Lutador
+                Cadastrar Novo Lutador
               </h3>
               <button
                 onClick={() => setModalAberto(false)}
@@ -366,74 +337,17 @@ export const AtletasModule: React.FC = () => {
                 </select>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-bold uppercase text-slate-700 dark:text-slate-300 mb-1">
-                    Data de Nascimento
-                  </label>
-                  <input
-                    type="date"
-                    required
-                    value={dataNascimento}
-                    onChange={(e) => setDataNascimento(e.target.value)}
-                    className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 rounded-xl px-4 py-2.5 text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold uppercase text-slate-700 dark:text-slate-300 mb-1">
-                    Peso Declarado (kg)
-                  </label>
-                  <input
-                    type="number"
-                    step="0.1"
-                    placeholder="ex: 65.4"
-                    value={pesoEstimado}
-                    onChange={(e) => setPesoEstimado(e.target.value)}
-                    className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 rounded-xl px-4 py-2.5 text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
-                  />
-                </div>
-              </div>
-
-              {/* Inscrição no Campeonato */}
-              <div className="p-4 bg-blue-50/50 dark:bg-slate-950/70 border border-blue-200 dark:border-blue-900/50 rounded-2xl space-y-3">
-                <div className="flex items-center gap-1.5 text-xs font-bold text-blue-700 dark:text-blue-400 uppercase">
-                  <Trophy className="w-4 h-4" />
-                  <span>Inscrever em Campeonato</span>
-                </div>
-
-                <div>
-                  <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1">
-                    Campeonato Ativo
-                  </label>
-                  <select
-                    value={campeonatoId}
-                    onChange={(e) => setCampeonatoId(e.target.value)}
-                    className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white"
-                  >
-                    <option value="10000000-0000-0000-0000-000000000001">Grand Prix Nacional de Judô 2026</option>
-                    {campeonatos.map((c) => (
-                      <option key={c.id} value={c.id}>{c.nome}</option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1">
-                    Categoria Oficial de Peso
-                  </label>
-                  <select
-                    value={categoriaId}
-                    onChange={(e) => setCategoriaId(e.target.value)}
-                    className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white"
-                  >
-                    <option value="">Selecione a Categoria de Peso...</option>
-                    {CATEGORIAS_MOCK.map((cat) => (
-                      <option key={cat.id} value={cat.id}>
-                        {cat.classe} {cat.divisaoPeso} (Limite: {cat.pesoLimiteKg}kg)
-                      </option>
-                    ))}
-                  </select>
-                </div>
+              <div>
+                <label className="block text-xs font-bold uppercase text-slate-700 dark:text-slate-300 mb-1">
+                  Data de Nascimento
+                </label>
+                <input
+                  type="date"
+                  required
+                  value={dataNascimento}
+                  onChange={(e) => setDataNascimento(e.target.value)}
+                  className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-800 rounded-xl px-4 py-2.5 text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
+                />
               </div>
 
               <div className="flex gap-3 pt-3">

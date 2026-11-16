@@ -31,21 +31,23 @@ const DEFAULT_STATE: TelaoState = {
   placar: {
     lutaId: '70000000-0000-0000-0000-000000000001',
     ipponBranco: 0,
-    wazaAriBranco: 1,
-    shidoBranco: 1,
+    wazaAriBranco: 0,
+    yukoBranco: 0,
+    shidoBranco: 0,
     ipponAzul: 0,
     wazaAriAzul: 0,
-    shidoAzul: 2,
+    yukoAzul: 0,
+    shidoAzul: 0,
     osaekomiAtivo: false,
     osaekomiCor: null,
     osaekomiTempoSegundos: 0,
-    cronometroSegundos: 184, // 03:04
+    cronometroSegundos: 240, // 04:00 padrão FIJ
     emGoldenScore: false,
-    cronometroRodando: true,
+    cronometroRodando: false,
     sonoMama: false,
     ultimaAtualizacao: new Date().toISOString(),
   },
-  statusLuta: 'EM ANDAMENTO',
+  statusLuta: 'AGUARDANDO COMBATE',
 };
 
 export const TelaoArenaView: React.FC = () => {
@@ -56,23 +58,85 @@ export const TelaoArenaView: React.FC = () => {
   );
   const [isConnected, setIsConnected] = useState(false);
 
-  // Carrega tatames reais do campeonato ativo
+  // Carrega tatames reais do campeonato ativo (ou busca o campeonato ativo caso o localStorage esteja desatualizado)
   useEffect(() => {
-    const campId = localStorage.getItem('judoo_active_campeonato') || '10000000-0000-0000-0000-000000000001';
-    api.getTatames(campId)
-      .then((res) => {
-        if (res && res.length > 0) {
-          setTatames(res);
-          // Se o tatame selecionado não está na lista, escolhe o primeiro
-          if (!res.some((t) => t.id === tatameSelecionadoId)) {
-            setTatameSelecionadoId(res[0].id);
+    let mounted = true;
+
+    async function fetchTatames() {
+      try {
+        let campId = localStorage.getItem('judoo_active_campeonato') || '10000000-0000-0000-0000-000000000001';
+        try {
+          const campeonatos = await api.getCampeonatos();
+          if (campeonatos && campeonatos.length > 0) {
+            const existe = campeonatos.some((c) => c.id === campId);
+            if (!existe) {
+              const ativo = campeonatos.find((c) => c.status === 'EM_ANDAMENTO') || campeonatos[0];
+              campId = ativo.id;
+              localStorage.setItem('judoo_active_campeonato', campId);
+            }
+          }
+        } catch {
+          // ignora se falhar getCampeonatos
+        }
+
+        const res = await api.getTatames(campId);
+        if (!mounted || !res || res.length === 0) return;
+
+        setTatames(res);
+        setTatameSelecionadoId((atual) =>
+          res.some((t) => t.id === atual) ? atual : res[0].id
+        );
+      } catch {
+        // Fallback local se API offline
+      }
+    }
+
+    fetchTatames();
+    // Atualiza os metadados de tatames periodicamente para refletir trocas de luta feitas na mesa
+    const poll = setInterval(fetchTatames, 4000);
+    return () => {
+      mounted = false;
+      clearInterval(poll);
+    };
+  }, []);
+
+  // Contagem local de 1s no Telão sincronizada com os eventos de início/pausa/ajuste da Mesa
+  useEffect(() => {
+    if (!state.placar.cronometroRodando) return;
+
+    const timer = setInterval(() => {
+      setState((prev) => {
+        const p = prev.placar;
+        if (!p.cronometroRodando) return prev;
+
+        let novoTempo = p.cronometroSegundos;
+        let novoOsaekomi = p.osaekomiTempoSegundos;
+
+        if (!p.sonoMama) {
+          if (p.emGoldenScore) {
+            novoTempo += 1;
+          } else if (novoTempo > 0) {
+            novoTempo -= 1;
           }
         }
-      })
-      .catch(() => {
-        // Fallback local se API offline
+
+        if (p.osaekomiAtivo && novoOsaekomi < 20) {
+          novoOsaekomi += 1;
+        }
+
+        return {
+          ...prev,
+          placar: {
+            ...p,
+            cronometroSegundos: novoTempo,
+            osaekomiTempoSegundos: novoOsaekomi,
+          },
+        };
       });
-  }, []);
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [state.placar.cronometroRodando]);
 
   // Inicializa SignalR e sincroniza com Tatame selecionado
   useEffect(() => {
@@ -85,28 +149,104 @@ export const TelaoArenaView: React.FC = () => {
 
         signalRService.onPlacarAtualizado((payload: any) => {
           if (!active) return;
-          const placarData = payload.placar || payload;
-          setState((prev) => ({ ...prev, placar: placarData }));
-        });
-
-        signalRService.onCronometroAtualizado((data) => {
-          if (!active) return;
+          const placarData: PlacarLuta = payload.placar || payload.Placar || payload;
           setState((prev) => ({
             ...prev,
             placar: {
               ...prev.placar,
-              cronometroSegundos: data.tempoSegundos,
-              cronometroRodando: data.rodando,
-              emGoldenScore: data.goldenScore,
+              ...placarData,
+              // Preserva o estado de execução do cronômetro caso o evento de pontuação não tenha parado a luta
+              cronometroSegundos:
+                typeof placarData.cronometroSegundos === 'number'
+                  ? placarData.cronometroSegundos
+                  : prev.placar.cronometroSegundos,
+              cronometroRodando:
+                typeof placarData.cronometroRodando === 'boolean'
+                  ? placarData.cronometroRodando
+                  : prev.placar.cronometroRodando,
             },
           }));
         });
 
-        signalRService.onLutaFinalizada((data) => {
+        signalRService.onCronometroAtualizado((data: any) => {
           if (!active) return;
+          const tempo = data.tempoSegundos ?? data.TempoSegundos;
+          const rodando = data.rodando ?? data.Rodando;
+          const golden = data.goldenScore ?? data.GoldenScore;
+          const sonoMama = data.sonoMama ?? data.SonoMama;
+
           setState((prev) => ({
             ...prev,
-            statusLuta: `VENCEDOR: ${data.vencedor || 'Atleta'} (${data.tipoVitoria})`,
+            statusLuta: rodando ? 'EM ANDAMENTO' : prev.statusLuta === 'AGUARDANDO COMBATE' ? 'PAUSADA' : prev.statusLuta,
+            placar: {
+              ...prev.placar,
+              cronometroSegundos: typeof tempo === 'number' ? tempo : prev.placar.cronometroSegundos,
+              cronometroRodando: typeof rodando === 'boolean' ? rodando : prev.placar.cronometroRodando,
+              emGoldenScore: typeof golden === 'boolean' ? golden : prev.placar.emGoldenScore,
+              sonoMama: typeof sonoMama === 'boolean' ? sonoMama : prev.placar.sonoMama,
+            },
+          }));
+        });
+
+        signalRService.onLutaIniciada((payload: any) => {
+          if (!active) return;
+          const luta = payload?.luta || payload?.Luta || payload;
+          if (luta?.id || luta?.Id) {
+            const lutaId = luta.id || luta.Id;
+            api.getLuta(lutaId)
+              .then((detalhes) => {
+                if (!active || !detalhes) return;
+                setState((prev) => ({
+                  ...prev,
+                  categoria: `FASE ${detalhes.fase || 1} • LUTA #${detalhes.ordemNaChave || 1}`,
+                  atletaBranco: detalhes.atletaBranco
+                    ? {
+                        nome: detalhes.atletaBranco.nome.toUpperCase(),
+                        sigla: (detalhes.atletaBranco.siglaAcademia || 'CBJ').toUpperCase(),
+                        clube: (detalhes.atletaBranco.nomeAcademia || 'AGREMIAÇÃO OFICIAL').toUpperCase(),
+                      }
+                    : prev.atletaBranco,
+                  atletaAzul: detalhes.atletaAzul
+                    ? {
+                        nome: detalhes.atletaAzul.nome.toUpperCase(),
+                        sigla: (detalhes.atletaAzul.siglaAcademia || 'CBJ').toUpperCase(),
+                        clube: (detalhes.atletaAzul.nomeAcademia || 'AGREMIAÇÃO OFICIAL').toUpperCase(),
+                      }
+                    : prev.atletaAzul,
+                  placar: detalhes.placar || {
+                    ...prev.placar,
+                    lutaId: detalhes.id,
+                    cronometroSegundos: detalhes.tempoLutaSegundos || 240,
+                    cronometroRodando: false,
+                    emGoldenScore: detalhes.emGoldenScore || false,
+                    ipponBranco: 0,
+                    wazaAriBranco: 0,
+                    shidoBranco: 0,
+                    ipponAzul: 0,
+                    wazaAriAzul: 0,
+                    shidoAzul: 0,
+                    osaekomiAtivo: false,
+                    osaekomiTempoSegundos: 0,
+                  },
+                  statusLuta: detalhes.status ? detalhes.status.toUpperCase() : 'EM ANDAMENTO',
+                }));
+              })
+              .catch(() => {});
+          }
+        });
+
+        signalRService.onLutaFinalizada((data: any) => {
+          if (!active) return;
+          const vencedor = data.vencedor ?? data.Vencedor;
+          const tipoVitoria = data.tipoVitoria ?? data.TipoVitoria;
+          setState((prev) => ({
+            ...prev,
+            placar: {
+              ...prev.placar,
+              cronometroRodando: false,
+              osaekomiAtivo: false,
+            },
+            statusLuta: `VENCEDOR: ${vencedor || 'Atleta'} (${tipoVitoria})`,
           }));
         });
       } catch (err) {
@@ -114,15 +254,27 @@ export const TelaoArenaView: React.FC = () => {
       }
     }
 
-    // Busca detalhes do tatame selecionado na API
+    initSignalR();
+
+    return () => {
+      active = false;
+      signalRService.stopConnection();
+    };
+  }, [tatameSelecionadoId]);
+
+  // Atualiza metadados do tatame e atletas quando a lista de tatames muda
+  useEffect(() => {
     const tatameAtual = tatames.find((t) => t.id === tatameSelecionadoId);
-    if (tatameAtual) {
-      const luta = tatameAtual.lutaAtual;
-      setState((prev) => ({
+    if (!tatameAtual) return;
+
+    const luta = tatameAtual.lutaAtual;
+    setState((prev) => {
+      const mudouLuta = luta && luta.id !== prev.placar.lutaId;
+      return {
         ...prev,
         tatameId: tatameAtual.id,
         tatameNome: `TATAME ${tatameAtual.numero} • ${tatameAtual.nome.toUpperCase()}`,
-        categoria: luta ? `FASE ${luta.fase || 1} • CATEGORIA OFICIAL` : prev.categoria,
+        categoria: luta ? `FASE ${luta.fase || 1} • LUTA #${luta.ordemNaChave || 1}` : prev.categoria,
         atletaBranco: luta?.atletaBranco
           ? {
               nome: luta.atletaBranco.nome.toUpperCase(),
@@ -137,17 +289,32 @@ export const TelaoArenaView: React.FC = () => {
               clube: (luta.atletaAzul.nomeAcademia || 'AGREMIAÇÃO OFICIAL').toUpperCase(),
             }
           : prev.atletaAzul,
-        placar: luta?.placar || prev.placar,
+        // Se mudou a luta (ou se o cronômetro não está rodando localmente), sincroniza o placar do backend
+        placar:
+          mudouLuta && luta?.placar
+            ? luta.placar
+            : mudouLuta && luta
+            ? {
+                ...prev.placar,
+                lutaId: luta.id,
+                cronometroSegundos: luta.tempoLutaSegundos || 240,
+                cronometroRodando: false,
+                emGoldenScore: luta.emGoldenScore || false,
+                ipponBranco: 0,
+                wazaAriBranco: 0,
+                shidoBranco: 0,
+                ipponAzul: 0,
+                wazaAriAzul: 0,
+                shidoAzul: 0,
+                osaekomiAtivo: false,
+                osaekomiTempoSegundos: 0,
+              }
+            : !prev.placar.cronometroRodando && luta?.placar
+            ? luta.placar
+            : prev.placar,
         statusLuta: luta?.status ? luta.status.toUpperCase() : 'AGUARDANDO COMBATE',
-      }));
-    }
-
-    initSignalR();
-
-    return () => {
-      active = false;
-      signalRService.stopConnection();
-    };
+      };
+    });
   }, [tatameSelecionadoId, tatames]);
 
   // Formatação de minutos e segundos
@@ -240,19 +407,26 @@ export const TelaoArenaView: React.FC = () => {
             </div>
           </div>
 
-          {/* Pontuações Técnicas (Ippon & Waza-ari) */}
-          <div className="grid grid-cols-2 gap-6 my-6">
+          {/* Pontuações Técnicas (Ippon, Waza-ari & Yuko) */}
+          <div className="grid grid-cols-3 gap-4 my-6">
             <div className="bg-slate-950/80 border border-slate-800 rounded-2xl p-4 text-center">
               <span className="text-xs sm:text-sm font-black text-slate-400 uppercase tracking-widest">IPPON</span>
-              <div className="font-mono-scoreboard text-6xl sm:text-8xl font-black text-amber-400">
+              <div className="font-mono-scoreboard text-5xl sm:text-7xl font-black text-amber-400">
                 {placar.ipponBranco}
               </div>
             </div>
 
             <div className="bg-slate-950/80 border border-slate-800 rounded-2xl p-4 text-center">
               <span className="text-xs sm:text-sm font-black text-slate-400 uppercase tracking-widest">WAZA-ARI</span>
-              <div className="font-mono-scoreboard text-6xl sm:text-8xl font-black text-white">
+              <div className="font-mono-scoreboard text-5xl sm:text-7xl font-black text-white">
                 {placar.wazaAriBranco}
+              </div>
+            </div>
+
+            <div className="bg-slate-950/80 border border-slate-800 rounded-2xl p-4 text-center">
+              <span className="text-xs sm:text-sm font-black text-slate-400 uppercase tracking-widest">YUKO</span>
+              <div className="font-mono-scoreboard text-5xl sm:text-7xl font-black text-emerald-400">
+                {placar.yukoBranco ?? 0}
               </div>
             </div>
           </div>
@@ -295,19 +469,26 @@ export const TelaoArenaView: React.FC = () => {
             </div>
           </div>
 
-          {/* Pontuações Técnicas (Ippon & Waza-ari) */}
-          <div className="grid grid-cols-2 gap-6 my-6">
+          {/* Pontuações Técnicas (Ippon, Waza-ari & Yuko) */}
+          <div className="grid grid-cols-3 gap-4 my-6">
             <div className="bg-slate-950/80 border border-blue-900/60 rounded-2xl p-4 text-center">
               <span className="text-xs sm:text-sm font-black text-blue-300 uppercase tracking-widest">IPPON</span>
-              <div className="font-mono-scoreboard text-6xl sm:text-8xl font-black text-amber-400">
+              <div className="font-mono-scoreboard text-5xl sm:text-7xl font-black text-amber-400">
                 {placar.ipponAzul}
               </div>
             </div>
 
             <div className="bg-slate-950/80 border border-blue-900/60 rounded-2xl p-4 text-center">
               <span className="text-xs sm:text-sm font-black text-blue-300 uppercase tracking-widest">WAZA-ARI</span>
-              <div className="font-mono-scoreboard text-6xl sm:text-8xl font-black text-white">
+              <div className="font-mono-scoreboard text-5xl sm:text-7xl font-black text-white">
                 {placar.wazaAriAzul}
+              </div>
+            </div>
+
+            <div className="bg-slate-950/80 border border-blue-900/60 rounded-2xl p-4 text-center">
+              <span className="text-xs sm:text-sm font-black text-blue-300 uppercase tracking-widest">YUKO</span>
+              <div className="font-mono-scoreboard text-5xl sm:text-7xl font-black text-emerald-400">
+                {placar.yukoAzul ?? 0}
               </div>
             </div>
           </div>

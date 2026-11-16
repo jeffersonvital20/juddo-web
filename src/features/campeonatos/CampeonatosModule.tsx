@@ -44,6 +44,8 @@ export const CampeonatosModule: React.FC = () => {
   const [dataInicio, setDataInicio] = useState('');
   const [dataFim, setDataFim] = useState('');
   const [quantidadeTatames, setQuantidadeTatames] = useState(2);
+  const [erroSalvar, setErroSalvar] = useState<string | null>(null);
+  const [sucessoSalvar, setSucessoSalvar] = useState<string | null>(null);
 
   const { data: campeonatos = CAMPEONATOS_MOCK, isLoading } = useQuery({
     queryKey: ['campeonatos'],
@@ -59,26 +61,23 @@ export const CampeonatosModule: React.FC = () => {
   const mutationCriar = useMutation({
     mutationFn: (payload: { nome: string; local: string; dataInicio: string; dataFim: string; quantidadeTatames: number }) =>
       api.criarCampeonato(payload),
-    onSuccess: () => {
+    onSuccess: (novoCampeonato) => {
       queryClient.invalidateQueries({ queryKey: ['campeonatos'] });
+      if (novoCampeonato?.id) {
+        setCampeonatoAtivoId(novoCampeonato.id);
+        localStorage.setItem('judoo_active_campeonato', novoCampeonato.id);
+      }
       setModalAberto(false);
       setNome('');
       setLocal('');
       setDataInicio('');
       setDataFim('');
+      setErroSalvar(null);
+      setSucessoSalvar('Campeonato salvo com sucesso no banco de dados!');
+      setTimeout(() => setSucessoSalvar(null), 4000);
     },
-    onError: () => {
-      // Fallback local se API offline
-      const novo: Campeonato = {
-        id: crypto.randomUUID(),
-        nome,
-        local,
-        dataInicio,
-        dataFim,
-        status: 'EM_ANDAMENTO',
-      };
-      queryClient.setQueryData(['campeonatos'], (old: Campeonato[] = []) => [novo, ...old]);
-      setModalAberto(false);
+    onError: (err: Error) => {
+      setErroSalvar(err?.message || 'Erro ao salvar campeonato no servidor.');
     },
   });
 
@@ -118,7 +117,10 @@ export const CampeonatosModule: React.FC = () => {
         </div>
 
         <button
-          onClick={() => setModalAberto(true)}
+          onClick={() => {
+            setErroSalvar(null);
+            setModalAberto(true);
+          }}
           className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white font-bold px-5 py-3 rounded-xl shadow-lg shadow-blue-600/30 transition-all text-sm shrink-0"
         >
           <Plus className="w-4 h-4" />
@@ -126,11 +128,26 @@ export const CampeonatosModule: React.FC = () => {
         </button>
       </div>
 
+      {sucessoSalvar && (
+        <div className="bg-emerald-500/10 border border-emerald-500/30 text-emerald-700 dark:text-emerald-300 px-4 py-3 rounded-xl flex items-center gap-2 text-xs font-semibold">
+          <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
+          <span>{sucessoSalvar}</span>
+        </div>
+      )}
+
       {/* Grid de Campeonatos */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {isLoading && (
           <div className="col-span-2 text-center p-8 text-slate-400">
             Carregando campeonatos...
+          </div>
+        )}
+
+        {!isLoading && campeonatos.length === 0 && (
+          <div className="col-span-2 text-center p-10 bg-white dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 rounded-2xl text-slate-500 dark:text-slate-400 space-y-2">
+            <Trophy className="w-10 h-10 mx-auto text-amber-500/60" />
+            <p className="font-bold text-slate-800 dark:text-slate-200">Nenhum campeonato cadastrado no banco de dados</p>
+            <p className="text-xs">Clique em <strong>Novo Campeonato</strong> acima para criar seu primeiro torneio.</p>
           </div>
         )}
 
@@ -227,6 +244,12 @@ export const CampeonatosModule: React.FC = () => {
             </div>
 
             <form onSubmit={handleSubmit} className="space-y-4 text-sm">
+              {erroSalvar && (
+                <div className="p-3 bg-rose-500/10 border border-rose-500/30 text-rose-600 dark:text-rose-400 rounded-xl text-xs font-semibold">
+                  {erroSalvar}
+                </div>
+              )}
+
               <div>
                 <label className="block text-xs font-bold uppercase text-slate-700 dark:text-slate-300 mb-1">
                   Nome do Torneio / Evento
