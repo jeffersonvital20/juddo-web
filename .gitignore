@@ -29,6 +29,10 @@ dist-ssr
 .env.local
 .env.*.local
 
+# Tutoriais de Infraestrutura e VPS (Hostinger e GCP)
+DEPLOY_HOSTINGER.md
+DEPLOY_GCP_GITHUB.md
+
 # Test Reports
 test-results/
 coverage/

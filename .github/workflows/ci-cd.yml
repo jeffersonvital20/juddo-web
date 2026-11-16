@@ -1,4 +1,4 @@
-name: Judoo Web - CI/CD Pipeline (GCP Compute Engine VPS)
+name: Judoo Web - CI/CD Pipeline (VPS Hostinger & Multi-Cloud)
 
 on:
   push:
@@ -123,7 +123,7 @@ jobs:
   # 4. DEPLOY VPS GCP - DESENVOLVIMENTO (Apenas push na branch 'dev')
   # ============================================================================
   deploy-dev:
-    name: 4. Deploy VPS GCP - Desenvolvimento (dev)
+    name: 4. Deploy VPS (Dev)
     needs: [build, unit-tests, integration-tests]
     if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
     runs-on: ubuntu-latest
@@ -132,7 +132,7 @@ jobs:
 
     env:
       VPS_HOST: ${{ secrets.VPS_HOST }}
-      VPS_USER: ${{ secrets.VPS_USER || 'ubuntu' }}
+      VPS_USER: ${{ secrets.VPS_USER || 'root' }}
       VPS_PORT: ${{ secrets.VPS_PORT || '22' }}
       BUILD_MODE: development
       WEB_PORT: ${{ secrets.WEB_PORT_DEV || '3002' }}
@@ -141,7 +141,7 @@ jobs:
       VITE_HUB_URL: ${{ secrets.VITE_HUB_URL_DEV }}
 
     steps:
-      - name: Deploy via SSH na VM do Google Cloud (Dev)
+      - name: Deploy via SSH na VPS (Dev)
         if: env.VPS_HOST != ''
         uses: appleboy/ssh-action@v1.0.3
         with:
@@ -177,15 +177,15 @@ jobs:
 
       - name: Resumo do Deploy (Dev)
         run: |
-          echo "### 🚀 Deploy VPS GCP (Web Desenvolvimento) Concluído" >> $GITHUB_STEP_SUMMARY
+          echo "### 🚀 Deploy VPS (Web Desenvolvimento) Concluído" >> $GITHUB_STEP_SUMMARY
           echo "- **Branch**: \`dev\`" >> $GITHUB_STEP_SUMMARY
           echo "- **URL Web Dev**: \`http://${{ env.VPS_HOST || 'SEU_IP_VM' }}:${{ env.WEB_PORT }}\`" >> $GITHUB_STEP_SUMMARY
 
   # ============================================================================
-  # 5. DEPLOY VPS GCP - HOMOLOGAÇÃO (Apenas push na branch 'homolog')
+  # 5. DEPLOY VPS - HOMOLOGAÇÃO (Apenas push na branch 'homolog')
   # ============================================================================
   deploy-homolog:
-    name: 4. Deploy VPS GCP - Homologação (homolog)
+    name: 4. Deploy VPS (Homologação)
     needs: [build, unit-tests, integration-tests]
     if: github.event_name == 'push' && github.ref == 'refs/heads/homolog'
     runs-on: ubuntu-latest
@@ -194,7 +194,7 @@ jobs:
 
     env:
       VPS_HOST: ${{ secrets.VPS_HOST }}
-      VPS_USER: ${{ secrets.VPS_USER || 'ubuntu' }}
+      VPS_USER: ${{ secrets.VPS_USER || 'root' }}
       VPS_PORT: ${{ secrets.VPS_PORT || '22' }}
       BUILD_MODE: staging
       WEB_PORT: ${{ secrets.WEB_PORT_STAGING || '3001' }}
@@ -203,7 +203,7 @@ jobs:
       VITE_HUB_URL: ${{ secrets.VITE_HUB_URL_STAGING }}
 
     steps:
-      - name: Deploy via SSH na VM do Google Cloud (Homologação)
+      - name: Deploy via SSH na VPS (Homologação)
         if: env.VPS_HOST != ''
         uses: appleboy/ssh-action@v1.0.3
         with:
@@ -239,15 +239,15 @@ jobs:
 
       - name: Resumo do Deploy (Homologação)
         run: |
-          echo "### 🧪 Deploy VPS GCP (Web Homologação) Concluído" >> $GITHUB_STEP_SUMMARY
+          echo "### 🧪 Deploy VPS (Web Homologação) Concluído" >> $GITHUB_STEP_SUMMARY
           echo "- **Branch**: \`homolog\`" >> $GITHUB_STEP_SUMMARY
           echo "- **URL Web Homologação**: \`http://${{ env.VPS_HOST || 'SEU_IP_VM' }}:${{ env.WEB_PORT }}\`" >> $GITHUB_STEP_SUMMARY
 
   # ============================================================================
-  # 6. DEPLOY VPS GCP - PRODUÇÃO (Somente em commit/push na branch 'main')
+  # 6. DEPLOY VPS - PRODUÇÃO (Somente em commit/push na branch 'main')
   # ============================================================================
   deploy-prod:
-    name: 4. Deploy VPS GCP - Produção (main)
+    name: 4. Deploy VPS (Produção)
     needs: [build, unit-tests, integration-tests]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
@@ -256,7 +256,7 @@ jobs:
 
     env:
       VPS_HOST: ${{ secrets.VPS_HOST }}
-      VPS_USER: ${{ secrets.VPS_USER || 'ubuntu' }}
+      VPS_USER: ${{ secrets.VPS_USER || 'root' }}
       VPS_PORT: ${{ secrets.VPS_PORT || '22' }}
       BUILD_MODE: production
       WEB_PORT: ${{ secrets.WEB_PORT_PROD || '3000' }}
@@ -265,7 +265,7 @@ jobs:
       VITE_HUB_URL: ${{ secrets.VITE_HUB_URL_PROD }}
 
     steps:
-      - name: Deploy via SSH na VM do Google Cloud (Produção)
+      - name: Deploy via SSH na VPS (Produção)
         if: env.VPS_HOST != ''
         uses: appleboy/ssh-action@v1.0.3
         with:
@@ -301,6 +301,6 @@ jobs:
 
       - name: Resumo do Deploy (Produção)
         run: |
-          echo "### 🏆 Deploy VPS GCP (Web Produção) Concluído" >> $GITHUB_STEP_SUMMARY
+          echo "### 🏆 Deploy VPS (Web Produção) Concluído" >> $GITHUB_STEP_SUMMARY
           echo "- **Branch**: \`main\`" >> $GITHUB_STEP_SUMMARY
           echo "- **URL Web Produção**: \`http://${{ env.VPS_HOST || 'SEU_IP_VM' }}:${{ env.WEB_PORT }}\`" >> $GITHUB_STEP_SUMMARY
