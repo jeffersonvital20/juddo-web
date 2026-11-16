@@ -36,6 +36,9 @@ jobs:
       - name: Instalar dependências (npm ci)
         run: npm ci
 
+      - name: Executar Linter / Verificação Estática de Tipos (Lint)
+        run: npm run lint
+
       - name: Validar Build para Desenvolvimento (dev)
         run: npm run build:dev
 
@@ -76,6 +79,9 @@ jobs:
       - name: Instalar dependências (npm ci)
         run: npm ci
 
+      - name: Executar Linter / Verificação Estática de Tipos (Lint)
+        run: npm run lint
+
       - name: Executar Testes Unitários (Vitest)
         run: npx vitest run src/__tests__/unit --reporter=verbose --reporter=junit --outputFile=test-results/unit-tests.xml
 
@@ -107,6 +113,9 @@ jobs:
 
       - name: Instalar dependências (npm ci)
         run: npm ci
+
+      - name: Executar Linter / Verificação Estática de Tipos (Lint)
+        run: npm run lint
 
       - name: Executar Testes de Integração (Vitest + Testing Library)
         run: npx vitest run src/__tests__/integration --reporter=verbose --reporter=junit --outputFile=test-results/integration-tests.xml

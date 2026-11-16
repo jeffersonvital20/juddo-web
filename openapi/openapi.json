@@ -1,0 +1,194 @@
+{
+  "openapi": "3.0.1",
+  "info": {
+    "title": "Judoo API - Torneios de Judô em Tempo Real (FIJ)",
+    "description": "API de Alta Performance com Clean Architecture, CQRS, Dapper, Entity Framework Core, PostgreSQL, JWT RBAC e SignalR para Gestão de Torneios de Judô segundo as regras oficiais da FIJ.",
+    "version": "v1",
+    "contact": {
+      "name": "Judoo Architecture Team",
+      "email": "contato@judoo.com"
+    }
+  },
+  "servers": [
+    {
+      "url": "http://localhost:8080",
+      "description": "Ambiente de Desenvolvimento Local"
+    },
+    {
+      "url": "http://localhost:8081",
+      "description": "Ambiente de Homologação (Staging)"
+    },
+    {
+      "url": "http://localhost:8082",
+      "description": "Ambiente de Produção (VPS Hostinger)"
+    }
+  ],
+  "paths": {
+    "/api/campeonatos": {
+      "get": {
+        "tags": ["Campeonatos"],
+        "summary": "Endpoint Principal: Listar todos os campeonatos cadastrados",
+        "operationId": "ObterCampeonatos",
+        "responses": {
+          "200": {
+            "description": "Lista de campeonatos retornada com sucesso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/CampeonatoResponse"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": ["Campeonatos"],
+        "summary": "Cadastrar um novo campeonato",
+        "operationId": "CriarCampeonato",
+        "security": [
+          {
+            "Bearer": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CriarCampeonatoRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Campeonato criado com sucesso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CampeonatoResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Dados inválidos fornecidos"
+          },
+          "401": {
+            "description": "Não autorizado"
+          }
+        }
+      }
+    },
+    "/api/atletas": {
+      "get": {
+        "tags": ["Atletas"],
+        "summary": "Listar atletas cadastrados ou filtrados por campeonato",
+        "parameters": [
+          {
+            "name": "campeonatoId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Lista de atletas retornada com sucesso"
+          }
+        }
+      }
+    },
+    "/health": {
+      "get": {
+        "tags": ["Observability"],
+        "summary": "Health Check do serviço e banco de dados",
+        "responses": {
+          "200": {
+            "description": "Serviço saudável"
+          }
+        }
+      }
+    },
+    "/metrics": {
+      "get": {
+        "tags": ["Observability"],
+        "summary": "Métricas no padrão Prometheus e SLO targets",
+        "responses": {
+          "200": {
+            "description": "Métricas Prometheus"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "CampeonatoResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "nome": {
+            "type": "string"
+          },
+          "local": {
+            "type": "string"
+          },
+          "dataInicio": {
+            "type": "string",
+            "format": "date"
+          },
+          "dataFim": {
+            "type": "string",
+            "format": "date"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["CRIADO", "EM_ANDAMENTO", "FINALIZADO"]
+          }
+        }
+      },
+      "CriarCampeonatoRequest": {
+        "type": "object",
+        "required": ["nome", "local", "dataInicio", "dataFim"],
+        "properties": {
+          "nome": {
+            "type": "string"
+          },
+          "local": {
+            "type": "string"
+          },
+          "dataInicio": {
+            "type": "string",
+            "format": "date"
+          },
+          "dataFim": {
+            "type": "string",
+            "format": "date"
+          },
+          "quantidadeTatames": {
+            "type": "integer",
+            "default": 2
+          }
+        }
+      }
+    },
+    "securitySchemes": {
+      "Bearer": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+      }
+    }
+  }
+}
