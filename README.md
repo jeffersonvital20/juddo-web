@@ -145,7 +145,9 @@ Assim como no `juddo-backend`, o `judoo-web` possui arquivos de configuração d
    - Branch `homolog` → Ambiente **Homologação / Staging** (`WEB_PORT=3001`)
    - Branch `main` → Ambiente **Produção** (`WEB_PORT=3000`)
 
-👉 Consulte o guia completo de configuração de Secrets e deploy na VM em **[DEPLOY_GCP_GITHUB.md](DEPLOY_GCP_GITHUB.md)**.
+👉 Guias completos de configuração de Secrets e deploy na VPS:
+- **[DEPLOY_HOSTINGER.md](DEPLOY_HOSTINGER.md)**: Passo a passo para **VPS Hostinger** (Ubuntu/Debian) com Docker e GitHub Secrets.
+- **[DEPLOY_GCP_GITHUB.md](DEPLOY_GCP_GITHUB.md)**: Passo a passo para **Google Cloud Compute Engine (GCP)**.
 
 ---
 
